@@ -1,0 +1,315 @@
+*** jscntxt_org.h	2008-11-27 11:52:24.000000000 +0900
+--- jscntxt.h	2009-10-19 16:53:05.000000000 +0900
+***************
+*** 795,800 ****
+--- 795,802 ----
+  
+      /* Debug hooks associated with the current context. */
+      JSDebugHooks        *debugHooks;
++     uint8               bmlFlag; /* MIX: add for BML */
++     uint8               time_mode; /* MIX: add for BML */
+  };
+  
+  #ifdef JS_THREADSAFE
+*** jsparse_org.c	2008-11-27 11:54:33.000000000 +0900
+--- jsparse.c	2008-11-27 12:00:45.000000000 +0900
+***************
+*** 5829,5835 ****
+          pn = NewParseNode(cx, ts, PN_NULLARY, tc);
+          if (!pn)
+              return NULL;
+!         pn->pn_dval = CURRENT_TOKEN(ts).t_dval;
+  #if JS_HAS_SHARP_VARS
+          notsharp = JS_TRUE;
+  #endif
+--- 5829,5843 ----
+          pn = NewParseNode(cx, ts, PN_NULLARY, tc);
+          if (!pn)
+              return NULL;
+!         //pn->pn_dval = CURRENT_TOKEN(ts).t_dval;
+!         if(cx->bmlFlag) /* MIX: add for BML */
+!         {
+!             pn->pn_dval = (int)(CURRENT_TOKEN(ts).t_dval);
+!         }
+!         else
+!         {
+!             pn->pn_dval = CURRENT_TOKEN(ts).t_dval;
+!         }
+  #if JS_HAS_SHARP_VARS
+          notsharp = JS_TRUE;
+  #endif
+***************
+*** 6029,6034 ****
+--- 6037,6046 ----
+                  d = *cx->runtime->jsPositiveInfinity;
+          } else {
+              d /= d2;
++             if(cx->bmlFlag) /* MIX: add for BML */
++             {
++                 d = (int)d;
++             }
+          }
+          break;
+  
+*** jsinterp_org.c	2008-11-27 11:52:53.000000000 +0900
+--- jsinterp.c	2009-11-25 11:45:18.000000000 +0900
+***************
+*** 1876,1881 ****
+--- 1876,1882 ----
+  
+      /* Check the return value and if it's primitive, force it to be obj. */
+      rval = *vp;
++     if(cx->bmlFlag && JSVAL_IS_NULL(rval)); else /* MIX: add for BML */
+      if (JSVAL_IS_PRIMITIVE(rval)) {
+          if (!fun) {
+              /* native [[Construct]] returning primitive is error */
+***************
+*** 3728,3733 ****
+--- 3729,3738 ----
+                  STORE_OPND(-1, rval);
+              } else {
+                  d /= d2;
++                 if(cx->bmlFlag) /* MIX: add for BML */
++                 {
++                     d = (int)d;
++                 }
+                  STORE_NUMBER(cx, -1, d);
+              }
+            END_CASE(JSOP_DIV)
+***************
+*** 3897,3902 ****
+--- 3902,3914 ----
+              id = ATOM_TO_JSID(atom);
+              if (!js_FindProperty(cx, id, &obj, &obj2, &prop))
+                  goto error;
++             if(!prop) /* MIX: add for BML */
++             {
++                 jsval void_val=JSVAL_VOID;
++                 js_SetProperty(cx,obj,id,&void_val);
++                 if (!js_FindProperty(cx, id, &obj, &obj2, &prop))
++                     goto error;
++             }
+              if (!prop)
+                  goto atom_not_defined;
+              OBJ_DROP_PROPERTY(cx, obj2, prop);
+***************
+*** 4966,4971 ****
+--- 4978,4990 ----
+              id = ATOM_TO_JSID(atom);
+              if (js_FindPropertyHelper(cx, id, &obj, &obj2, &prop, &entry) < 0)
+                  goto error;
++             if(!prop) /* MIX: add for BML */
++             {
++                 jsval void_val=JSVAL_VOID;
++                 js_SetPropertyHelper(cx,obj,id,&void_val,&entry);
++                 if (js_FindPropertyHelper(cx, id, &obj, &obj2, &prop, &entry) < 0)
++                     goto error;
++             }
+              if (!prop) {
+                  /* Kludge to allow (typeof foo == "undefined") tests. */
+                  len = JSOP_NAME_LENGTH;
+*** jsdate_org.c	2009-01-19 19:54:10.000000000 +0900
+--- jsdate.c	2013-02-14 15:10:56.000000000 +0900
+***************
+*** 908,923 ****
+--- 908,943 ----
+      return js_NewNumberInRootedValue(cx, result, vp);
+  }
+  
++ #include "brHtmlTypes.h"
++ #include "bjCJsWindow.h"
++ 
+  static JSBool
+  date_now(JSContext *cx, uintN argc, jsval *vp)
+  {
+      int64 us, ms, us2ms;
+      jsdouble msec_time;
+  
++     { /* MIX: add for BML */
++         brHtml_t *html;
++         bjDate_t orgdate;
++ 
++         html = bjGetHtml(cx);
++     if(cx->bmlFlag && html && html->parent &&
++ #ifndef USE_TOT2ABSTIME
++        cx->time_mode &&
++ #endif
++        html->parent->callback_funcs && html->parent->callback_funcs->GetOrigAbsoluteTime &&
++        html->parent->callback_funcs->GetOrigAbsoluteTime(html->parent->callback_user,&orgdate))
++     {
++         msec_time = date_msecFromDate(orgdate.year,orgdate.month-1,orgdate.day,orgdate.hour,orgdate.min,orgdate.sec,orgdate.msec);
++     }
++     else
++     {
+      us = PRMJ_Now();
+      JSLL_UI2L(us2ms, PRMJ_USEC_PER_MSEC);
+      JSLL_DIV(ms, us, us2ms);
+      JSLL_L2D(msec_time, ms);
++     }}
+  
+      return js_NewDoubleInRootedValue(cx, msec_time, vp);
+  }
+***************
+*** 1553,1559 ****
+          t = LocalTime(result);
+      }
+  
+!     if (year >= 0 && year <= 99)
+          year += 1900;
+  
+      day = MakeDay(year, MonthFromTime(t), DateFromTime(t));
+--- 1573,1580 ----
+          t = LocalTime(result);
+      }
+  
+!     //if (year >= 0 && year <= 99)
+!     if (year >= 0 && year <= 199) /* MIX: add for actvila */
+          year += 1900;
+  
+      day = MakeDay(year, MonthFromTime(t), DateFromTime(t));
+***************
+*** 1594,1599 ****
+--- 1615,1633 ----
+          /* Avoid dependence on PRMJ_FormatTimeUSEnglish, because it
+           * requires a PRMJTime... which only has 16-bit years.  Sub-ECMA.
+           */
++         if(cx->bmlFlag) /* MIX: add for BML */
++         {
++         JS_snprintf(buf, sizeof buf,
++                     "%.4d-%.2d-%.2dT%.2d:%.2d:%.2d",
++                     YearFromTime(utctime),
++                     MonthFromTime(utctime)+1,
++                     DateFromTime(utctime),
++                     HourFromTime(utctime),
++                     MinFromTime(utctime),
++                     SecFromTime(utctime));
++         }
++         else
++         {
+          JS_snprintf(buf, sizeof buf, "%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT",
+                      days[WeekDay(utctime)],
+                      DateFromTime(utctime),
+***************
+*** 1602,1607 ****
+--- 1636,1642 ----
+                      HourFromTime(utctime),
+                      MinFromTime(utctime),
+                      SecFromTime(utctime));
++         }
+      }
+      str = JS_NewStringCopyZ(cx, buf);
+      if (!str)
+***************
+*** 1707,1712 ****
+--- 1742,1760 ----
+               * requires a PRMJTime... which only has 16-bit years.  Sub-ECMA.
+               */
+              /* Tue Oct 31 2000 09:41:40 GMT-0800 (PST) */
++             if(cx->bmlFlag) /* MIX: add for BML */
++             {
++             JS_snprintf(buf, sizeof buf,
++                         "%.4d-%.2d-%.2dT%.2d:%.2d:%.2d",
++                         YearFromTime(local),
++                         MonthFromTime(local)+1,
++                         DateFromTime(local),
++                         HourFromTime(local),
++                         MinFromTime(local),
++                         SecFromTime(local));
++             }
++             else
++             {
+              JS_snprintf(buf, sizeof buf,
+                          "%s %s %.2d %.4d %.2d:%.2d:%.2d GMT%+.4d%s%s",
+                          days[WeekDay(local)],
+***************
+*** 1719,1724 ****
+--- 1767,1773 ----
+                          offset,
+                          usetz ? " " : "",
+                          usetz ? tzbuf : "");
++             }
+              break;
+            case FORMATSPEC_DATE:
+              /* Tue Oct 31 2000 */
+***************
+*** 1803,1814 ****
+--- 1852,1869 ----
+  }
+  
+  static JSBool
++ date_toString(JSContext *cx, uintN argc, jsval *vp);
++ static JSBool
+  date_toLocaleString(JSContext *cx, uintN argc, jsval *vp)
+  {
+      /* Use '%#c' for windows, because '%c' is
+       * backward-compatible and non-y2k with msvc; '%#c' requests that a
+       * full year be used in the result string.
+       */
++     if(cx->bmlFlag) /* MIX: add for BML */
++     {
++         return date_toString(cx,argc,vp);
++     } else
+      return date_toLocaleHelper(cx,
+  #if defined(_WIN32) && !defined(__MWERKS__)
+                                     "%#c"
+***************
+*** 2042,2051 ****
+--- 2097,2124 ----
+          /* NSPR 2.0 docs say 'We do not support PRMJ_NowMS and PRMJ_NowS',
+           * so compute ms from PRMJ_Now.
+           */
++         { /* MIX: add for BML */
++             brHtml_t *html;
++             bjDate_t orgdate;
++ 
++             html = bjGetHtml(cx);
++         if(cx->bmlFlag && html && html->parent &&
++ #ifndef USE_TOT2ABSTIME
++            cx->time_mode &&
++ #endif
++            html->parent->callback_funcs && html->parent->callback_funcs->GetOrigAbsoluteTime &&
++            html->parent->callback_funcs->GetOrigAbsoluteTime(html->parent->callback_user,&orgdate))
++         {
++             msec_time = date_msecFromDate(orgdate.year,orgdate.month-1,orgdate.day,orgdate.hour,orgdate.min,orgdate.sec,orgdate.msec);
++         }
++         else
++         {
+          us = PRMJ_Now();
+          JSLL_UI2L(us2ms, PRMJ_USEC_PER_MSEC);
+          JSLL_DIV(ms, us, us2ms);
+          JSLL_L2D(msec_time, ms);
++         }
++         }
+  
+          return date_format(cx, msec_time, FORMATSPEC_FULL, rval);
+      }
+***************
+*** 2059,2068 ****
+--- 2132,2158 ----
+          if (!date)
+              return JS_FALSE;
+  
++         { /* MIX: add for BML */
++             brHtml_t *html;
++             bjDate_t orgdate;
++ 
++             html = bjGetHtml(cx);
++         if(cx->bmlFlag && html && html->parent &&
++ #ifndef USE_TOT2ABSTIME
++            cx->time_mode &&
++ #endif
++            html->parent->callback_funcs && html->parent->callback_funcs->GetOrigAbsoluteTime &&
++            html->parent->callback_funcs->GetOrigAbsoluteTime(html->parent->callback_user,&orgdate))
++         {
++             msec_time = date_msecFromDate(orgdate.year,orgdate.month-1,orgdate.day,orgdate.hour,orgdate.min,orgdate.sec,orgdate.msec);
++         }
++         else
++         {
+          us = PRMJ_Now();
+          JSLL_UI2L(us2ms, PRMJ_USEC_PER_MSEC);
+          JSLL_DIV(ms, us, us2ms);
+          JSLL_L2D(msec_time, ms);
++         }}
+  
+          *date = msec_time;
+      } else if (argc == 1) {
